@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+@theme {
+  --color-yerba-50: #f3f8ec;
+  --color-yerba-100: #e2efd2;
+  --color-yerba-600: #4d7a2a;
+  --color-yerba-700: #3c6121;
+  --color-yerba-900: #1f3312;
+}
+
+body {
+  @apply bg-stone-50 text-stone-900 antialiased;
+}

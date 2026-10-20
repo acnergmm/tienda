@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "tienda-mysql": {
+      "command": "node",
+      "args": ["--env-file=backend/.env", "backend/scripts/mcp-mysql.js"]
+    }
+  }
+}
