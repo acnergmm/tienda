@@ -158,6 +158,8 @@ Usar la herramienta **Bash** (Git Bash). En PowerShell 5.1 `curl` es un alias de
    ```
 
    Para GET con params/query, el inválido es del estilo `/api/ordenes/abc` o `?precioMax=-1`.
+
+   Con acentos o ñ en el body, no usar `-d '...'` desde Git Bash: en Windows el argumento no llega en UTF-8 y se guarda `�`. Escribir el JSON en un archivo UTF-8 del scratchpad y mandarlo con `--data-binary @archivo.json`.
 4. Si el endpoint escribe, confirmar el efecto en la base con el MCP `tienda-mysql` (`SELECT` de las filas tocadas) y, con transacción, que un caso que falla a mitad de camino (ej. stock insuficiente) no deja filas a medias.
 5. Mirar la consola del servidor: no debe haber errores inesperados.
 

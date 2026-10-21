@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { fetchCategorias, fetchProductos } from './lib/api.js';
 import Header from './components/Header.jsx';
 import CategoryFilter from './components/CategoryFilter.jsx';
@@ -21,6 +21,10 @@ export default function App() {
   const [productos, setProductos] = useState([]);
   const [estado, setEstado] = useState('cargando');
   const [carritoAbierto, setCarritoAbierto] = useState(false);
+  // Se incrementa para volver a pedir productos (p. ej. tras una compra, para ver el stock actualizado).
+  const [recargaProductos, setRecargaProductos] = useState(0);
+  const recargarProductos = useCallback(() => setRecargaProductos((n) => n + 1), []);
+  const cerrarCarrito = useCallback(() => setCarritoAbierto(false), []);
 
   const q = useDebounced(busqueda.trim(), 300);
 
@@ -48,7 +52,7 @@ export default function App() {
         setEstado('error');
       });
     return () => controller.abort();
-  }, [categoria, q]);
+  }, [categoria, q, recargaProductos]);
 
   return (
     <div className="min-h-screen">
@@ -71,7 +75,7 @@ export default function App() {
         <ProductGrid productos={productos} estado={estado} />
       </main>
 
-      <CartDrawer abierto={carritoAbierto} onCerrar={() => setCarritoAbierto(false)} />
+      <CartDrawer abierto={carritoAbierto} onCerrar={cerrarCarrito} onCompraRealizada={recargarProductos} />
     </div>
   );
 }
