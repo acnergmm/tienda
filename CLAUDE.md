@@ -60,7 +60,14 @@ cd frontend && npm run dev
 
 # Crear tablas y datos de ejemplo en una base VACÍA (se niega si ya hay tablas)
 cd backend && npm run db:init
+
+# Mission Control: tablero en vivo de los agentes (http://127.0.0.1:5055)
+cd ops/mission-control && npm start
 ```
+
+## Mission Control
+
+`ops/mission-control` es un servidor Node sin dependencias que recibe los eventos de los hooks (`POST /events`) y los muestra en vivo (SSE en `/stream`): un mapa por sesión con el agente principal y sus subagentes como tarjetas, con la herramienta en uso y el archivo que tocan. En `.claude/settings.json`, todos los eventos llaman a `.claude/hooks/enviar-a-mission-control.js`, que manda un resumen recortado (sin el contenido de los archivos ni las respuestas de las herramientas) y nunca bloquea: si el tablero está apagado, sale con 0 sin hacer nada. Escucha solo en `127.0.0.1` y guarda el estado en memoria.
 
 ## Servidor MCP de MySQL
 

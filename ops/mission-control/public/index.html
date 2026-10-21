@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mission Control</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <style>
+    body {
+      background-color: #070b14;
+      background-image: radial-gradient(rgba(148, 163, 184, 0.09) 1px, transparent 1px);
+      background-size: 22px 22px;
+    }
+    @keyframes flujo { to { stroke-dashoffset: -24; } }
+    .linea-activa { stroke-dasharray: 6 6; animation: flujo 0.8s linear infinite; }
+    .brillo-trabajando { box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.35), 0 0 28px -4px rgba(52, 211, 153, 0.45); }
+    .brillo-esperando { box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.35), 0 0 28px -4px rgba(251, 191, 36, 0.4); }
+  </style>
+</head>
+<body class="min-h-screen text-slate-200 antialiased">
+  <header class="sticky top-0 z-20 border-b border-slate-800/80 bg-[#070b14]/90 backdrop-blur">
+    <div class="flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 sm:px-6">
+      <div class="flex items-center gap-3">
+        <div class="grid h-8 w-8 place-items-center rounded-lg bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-400/30">
+          <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+        </div>
+        <div>
+          <h1 class="text-sm font-semibold tracking-wide text-white">Mission Control</h1>
+          <p class="text-[11px] text-slate-500">Agentes de Claude Code en vivo</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-4 text-xs">
+        <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-emerald-400"></span><b id="cnt-trabajando" class="text-white">0</b> trabajando</span>
+        <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-amber-400"></span><b id="cnt-esperando" class="text-white">0</b> esperando</span>
+        <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-slate-500"></span><b id="cnt-sesiones" class="text-white">0</b> sesiones</span>
+      </div>
+      <div id="conexion" class="ml-auto flex items-center gap-2 rounded-full border border-slate-700 px-3 py-1 text-[11px] text-slate-400">
+        <span class="h-1.5 w-1.5 rounded-full bg-slate-500"></span> conectando…
+      </div>
+    </div>
+  </header>
+
+  <div class="flex flex-col gap-4 p-4 sm:p-6 xl:flex-row">
+    <main id="mapa" class="flex min-w-0 flex-1 flex-col gap-6"></main>
+
+    <aside class="w-full shrink-0 xl:w-96">
+      <div class="sticky top-20 rounded-xl border border-slate-800 bg-slate-950/70">
+        <div class="flex items-center justify-between border-b border-slate-800 px-4 py-2.5">
+          <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">Eventos</h2>
+          <span class="text-[10px] text-slate-600">últimos 80</span>
+        </div>
+        <ol id="feed" class="max-h-[calc(100vh-9rem)] divide-y divide-slate-800/70 overflow-y-auto"></ol>
+      </div>
+    </aside>
+  </div>
+
+  <template id="vacio">
+    <div class="grid place-items-center rounded-2xl border border-dashed border-slate-700 px-6 py-20 text-center">
+      <p class="text-sm text-slate-300">Todavía no llegó ningún evento.</p>
+      <p class="mt-1 max-w-md text-xs text-slate-500">
+        Abrí Claude Code en el proyecto (los hooks de <code class="text-slate-400">.claude/settings.json</code> mandan todo a
+        <code class="text-slate-400">http://127.0.0.1:5055/events</code>) y los agentes van a aparecer acá.
+      </p>
+    </div>
+  </template>
+
+  <script>
+    const ESTILOS = {
+      trabajando: { etiqueta: 'trabajando', borde: 'border-emerald-400/60', fondo: 'bg-emerald-950/40', punto: 'bg-emerald-400', texto: 'text-emerald-300', extra: 'brillo-trabajando', linea: '#34d399' },
+      esperando: { etiqueta: 'esperando', borde: 'border-amber-400/60', fondo: 'bg-amber-950/30', punto: 'bg-amber-400', texto: 'text-amber-300', extra: 'brillo-esperando', linea: '#fbbf24' },
+      inactivo: { etiqueta: 'en reposo', borde: 'border-slate-700', fondo: 'bg-slate-900/70', punto: 'bg-slate-500', texto: 'text-slate-400', extra: '', linea: '#334155' },
+      terminado: { etiqueta: 'terminó', borde: 'border-slate-800', fondo: 'bg-slate-950/60', punto: 'bg-slate-600', texto: 'text-slate-500', extra: 'opacity-60', linea: '#1e293b' },
+    };
+
+    const COLOR_HERRAMIENTA = {
+      Read: 'text-sky-300', Write: 'text-fuchsia-300', Edit: 'text-fuchsia-300', MultiEdit: 'text-fuchsia-300', NotebookEdit: 'text-fuchsia-300',
+      Bash: 'text-orange-300', PowerShell: 'text-orange-300', Grep: 'text-cyan-300', Glob: 'text-cyan-300',
+      Agent: 'text-violet-300', Task: 'text-violet-300', WebFetch: 'text-blue-300', WebSearch: 'text-blue-300',
+    };
+
+    const ETIQUETA_EVENTO = {
+      SessionStart: 'inició sesión', SessionEnd: 'cerró sesión', UserPromptSubmit: 'recibió un pedido',
+      PreToolUse: 'usa', PostToolUse: 'terminó', PostToolUseFailure: 'falló', Notification: 'avisa',
+      Stop: 'terminó el turno', SubagentStart: 'arrancó', SubagentStop: 'terminó', PreCompact: 'compacta contexto',
+    };
+
+    let estado = { ahora: Date.now(), sesiones: [], eventos: [] };
+    let desfase = 0; // reloj del servidor - reloj local
+
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const colorHerramienta = (h) => (h?.startsWith('mcp__') ? 'text-teal-300' : COLOR_HERRAMIENTA[h] || 'text-slate-200');
+    const nombreHerramienta = (h) => (h?.startsWith('mcp__') ? h.split('__').slice(1).join(' › ') : h);
+
+    function hace(ts) {
+      const s = Math.max(0, Math.round((Date.now() + desfase - ts) / 1000));
+      if (s < 5) return 'ahora';
+      if (s < 60) return `hace ${s}s`;
+      if (s < 3600) return `hace ${Math.floor(s / 60)} min`;
+      return `hace ${Math.floor(s / 3600)} h`;
+    }
+    const hora = (ts) => new Date(ts).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+    function bloqueActividad(a) {
+      if (a.herramienta) {
+        return `
+          <div class="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-slate-500">usando</div>
+          <div class="mt-0.5 font-semibold ${colorHerramienta(a.herramienta)}">${esc(nombreHerramienta(a.herramienta))}</div>
+          <div class="mt-0.5 break-all text-slate-300 line-clamp-2" title="${esc(a.objetivo)}">${esc(a.objetivo || '—')}</div>`;
+      }
+      const ultima = a.ultimaHerramienta
+        ? `<div class="mt-1 truncate text-slate-500" title="${esc(a.ultimoObjetivo)}">último: <span class="${colorHerramienta(a.ultimaHerramienta)}">${esc(nombreHerramienta(a.ultimaHerramienta))}</span> ${esc(a.ultimoObjetivo || '')}</div>`
+        : '';
+      const principal = a.estado === 'trabajando' ? 'pensando…' : a.estado === 'esperando' ? 'esperando respuesta' : a.estado === 'terminado' ? 'sin actividad' : 'en reposo';
+      return `<div class="text-slate-400">${principal}</div>${ultima}`;
+    }
+
+    function tarjeta(a) {
+      const st = ESTILOS[a.estado] || ESTILOS.inactivo;
+      const pulso = a.estado === 'trabajando' || a.estado === 'esperando'
+        ? `<span class="absolute inline-flex h-full w-full animate-ping rounded-full ${st.punto} opacity-60"></span>` : '';
+      const chips = a.historial.slice(0, 6).map((h) => {
+        const marca = h.resultado === 'error' ? 'border-rose-500/50 text-rose-300' : h.resultado === 'en curso' ? 'border-emerald-500/50 text-emerald-200' : 'border-slate-700 text-slate-400';
+        return `<span class="rounded border ${marca} px-1.5 py-0.5 text-[10px]" title="${esc(h.objetivo)}">${esc(nombreHerramienta(h.herramienta))}</span>`;
+      }).join('');
+      return `
+        <article data-agente="${esc(a.id)}" class="agente relative z-10 w-full rounded-xl border ${st.borde} ${st.fondo} ${st.extra} p-3 transition-all duration-300 sm:w-72">
+          <div class="flex items-center gap-2">
+            <span class="relative flex h-2.5 w-2.5 shrink-0">${pulso}<span class="relative inline-flex h-2.5 w-2.5 rounded-full ${st.punto}"></span></span>
+            <span class="truncate text-sm font-semibold text-white">${esc(a.nombre)}</span>
+            <span class="ml-auto shrink-0 text-[10px] uppercase tracking-wider ${st.texto}">${st.etiqueta}</span>
+          </div>
+          ${a.descripcion ? `<p class="mt-1 truncate text-xs text-slate-400" title="${esc(a.descripcion)}">${esc(a.descripcion)}</p>` : ''}
+          <div class="mt-2.5 rounded-lg bg-black/35 px-2.5 py-2 font-mono text-xs">${bloqueActividad(a)}</div>
+          ${a.mensaje ? `<p class="mt-2 line-clamp-2 text-[11px] ${a.estado === 'esperando' ? 'text-amber-200' : 'text-slate-400'}">${esc(a.mensaje)}</p>` : ''}
+          ${chips ? `<div class="mt-2 flex flex-wrap gap-1">${chips}</div>` : ''}
+          <div class="mt-2 flex justify-between text-[10px] text-slate-500">
+            <span>${a.usos} ${a.usos === 1 ? 'herramienta' : 'herramientas'}</span>
+            <span data-desde="${a.ultimo}">${hace(a.ultimo)}</span>
+          </div>
+        </article>`;
+    }
+
+    function region(s) {
+      const principal = s.agentes.find((a) => a.esPrincipal);
+      const subs = s.agentes.filter((a) => !a.esPrincipal)
+        .sort((a, b) => (a.estado === 'terminado') - (b.estado === 'terminado') || b.inicio - a.inicio);
+      return `
+        <section data-sesion="${esc(s.id)}" class="region relative rounded-2xl border ${s.terminada ? 'border-slate-800/60 opacity-70' : 'border-slate-800'} bg-slate-950/40 p-4 sm:p-5">
+          <svg class="conectores pointer-events-none absolute inset-0 z-0 h-full w-full"></svg>
+          <div class="relative z-10 mb-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h2 class="text-sm font-semibold text-white">${esc(s.proyecto)}</h2>
+            <span class="font-mono text-[11px] text-slate-500">sesión ${esc(s.id.slice(0, 8))}</span>
+            <span class="truncate font-mono text-[11px] text-slate-600" title="${esc(s.cwd)}">${esc(s.cwd)}</span>
+            <span class="ml-auto text-[11px] text-slate-500">${s.terminada ? 'cerrada' : 'activa'} · <span data-desde="${s.ultimo}">${hace(s.ultimo)}</span></span>
+          </div>
+          <div class="relative z-10 flex justify-center">${principal ? tarjeta(principal) : ''}</div>
+          ${subs.length
+            ? `<div class="relative z-10 mt-14 flex flex-wrap justify-center gap-4">${subs.map(tarjeta).join('')}</div>`
+            : `<p class="relative z-10 mt-4 text-center text-[11px] text-slate-600">sin subagentes</p>`}
+        </section>`;
+    }
+
+    function feed() {
+      return estado.eventos.map((e) => {
+        const quien = e.esPrincipal ? 'principal' : e.agente;
+        const color = e.evento === 'PostToolUseFailure' ? 'text-rose-300' : e.evento === 'Notification' ? 'text-amber-300' : e.evento.startsWith('Subagent') ? 'text-violet-300' : 'text-slate-400';
+        const herramienta = e.herramienta ? ` <span class="${colorHerramienta(e.herramienta)}">${esc(nombreHerramienta(e.herramienta))}</span>` : '';
+        const extra = e.objetivo || e.detalle;
+        return `
+          <li class="px-4 py-2 text-xs">
+            <div class="flex items-center gap-2">
+              <span class="font-mono text-[10px] text-slate-600">${hora(e.ts)}</span>
+              <span class="truncate font-medium text-slate-200">${esc(quien)}</span>
+              <span class="${color}">${esc(ETIQUETA_EVENTO[e.evento] || e.evento)}</span>${herramienta}
+            </div>
+            ${extra ? `<div class="mt-0.5 truncate font-mono text-[11px] text-slate-500" title="${esc(extra)}">${esc(extra)}</div>` : ''}
+          </li>`;
+      }).join('');
+    }
+
+    // Líneas curvas del agente principal a cada subagente de la región.
+    function dibujarConectores() {
+      for (const reg of document.querySelectorAll('.region')) {
+        const svg = reg.querySelector('.conectores');
+        const sesion = estado.sesiones.find((s) => s.id === reg.dataset.sesion);
+        const cajas = [...reg.querySelectorAll('.agente')];
+        if (!sesion || cajas.length < 2) { svg.innerHTML = ''; continue; }
+        const base = reg.getBoundingClientRect();
+        const origen = cajas[0].getBoundingClientRect();
+        const x0 = origen.left + origen.width / 2 - base.left;
+        const y0 = origen.bottom - base.top;
+        svg.innerHTML = cajas.slice(1).map((caja) => {
+          const agente = sesion.agentes.find((a) => a.id === caja.dataset.agente);
+          const st = ESTILOS[agente?.estado] || ESTILOS.inactivo;
+          const r = caja.getBoundingClientRect();
+          const x1 = r.left + r.width / 2 - base.left;
+          const y1 = r.top - base.top;
+          const medio = (y0 + y1) / 2;
+          const activa = agente?.estado === 'trabajando' || agente?.estado === 'esperando';
+          return `<path d="M${x0},${y0} C${x0},${medio} ${x1},${medio} ${x1},${y1}" fill="none" stroke="${st.linea}" stroke-width="${activa ? 2 : 1.5}" class="${activa ? 'linea-activa' : ''}" />`;
+        }).join('');
+      }
+    }
+
+    let pendiente = false;
+    function render() {
+      if (pendiente) return;
+      pendiente = true;
+      requestAnimationFrame(() => {
+        pendiente = false;
+        const mapa = document.getElementById('mapa');
+        mapa.innerHTML = estado.sesiones.length ? estado.sesiones.map(region).join('') : document.getElementById('vacio').innerHTML;
+        document.getElementById('feed').innerHTML = feed() || '<li class="px-4 py-6 text-center text-xs text-slate-600">sin eventos</li>';
+        const agentes = estado.sesiones.flatMap((s) => s.agentes);
+        document.getElementById('cnt-trabajando').textContent = agentes.filter((a) => a.estado === 'trabajando').length;
+        document.getElementById('cnt-esperando').textContent = agentes.filter((a) => a.estado === 'esperando').length;
+        document.getElementById('cnt-sesiones').textContent = estado.sesiones.filter((s) => !s.terminada).length;
+        dibujarConectores();
+      });
+    }
+
+    function marcarConexion(ok) {
+      const el = document.getElementById('conexion');
+      el.innerHTML = ok
+        ? '<span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span> en vivo'
+        : '<span class="h-1.5 w-1.5 rounded-full bg-rose-400"></span> sin conexión, reintentando…';
+      el.className = `ml-auto flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] ${ok ? 'border-emerald-500/40 text-emerald-300' : 'border-rose-500/40 text-rose-300'}`;
+    }
+
+    const fuente = new EventSource('/stream');
+    fuente.onopen = () => marcarConexion(true);
+    fuente.onerror = () => marcarConexion(false);
+    fuente.onmessage = (msg) => {
+      estado = JSON.parse(msg.data);
+      desfase = estado.ahora - Date.now();
+      marcarConexion(true);
+      render();
+    };
+
+    setInterval(() => {
+      for (const el of document.querySelectorAll('[data-desde]')) el.textContent = hace(Number(el.dataset.desde));
+    }, 1000);
+    window.addEventListener('resize', dibujarConectores);
+    render();
+  </script>
+</body>
+</html>

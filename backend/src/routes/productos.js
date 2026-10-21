@@ -40,10 +40,15 @@ router.get('/', validate({ query: listarProductosQuery }), async (req, res, next
       values.push(categoria);
     }
     if (q) {
-      sql += ' AND p.nombre LIKE ?';
-      values.push(`%${escapeLike(q)}%`);
+      const patron = `%${escapeLike(q)}%`;
+      sql += ' AND (p.nombre LIKE ? OR p.descripcion LIKE ? OR c.nombre LIKE ?)';
+      values.push(patron, patron, patron);
+      // Relevancia: primero los que coinciden por nombre; el orden habitual desempata.
+      sql += ' ORDER BY (p.nombre LIKE ?) DESC, c.id, p.nombre';
+      values.push(patron);
+    } else {
+      sql += ' ORDER BY c.id, p.nombre';
     }
-    sql += ' ORDER BY c.id, p.nombre';
 
     const [rows] = await pool.execute(sql, values);
     res.json(rows.map(toProducto));
